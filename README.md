@@ -1,4 +1,4 @@
-# pg2pandas
+# pg2hdf5
 
 ## The Problem
 

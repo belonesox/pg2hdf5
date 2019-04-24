@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-# This file is part of pg2pandas.
+# This file is part of pg2hdf5.
 # https://github.com/belonesox/pg2hdf5
 
 # Licensed under the MIT license:
@@ -61,7 +61,7 @@ Fast and optimized loading of large HDF5 Dataset from postgres DB
     entry_points={
         'console_scripts': [
             # add cli scripts here in this form:
-            # 'pg2pandas=pg2pandas.cli:main',
+            # 'pg2hdf5=pg2hdf5.cli:main',
         ],
     },
 )
