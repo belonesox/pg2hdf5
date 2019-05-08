@@ -44,7 +44,9 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}):
     if True:
         cursor = pgcon.cursor("serversidecursor", withhold=True)
         pgcon.commit()
-        chunk_size = int(max(min(count/10, 100000), 10))
+        chunk_size = 10000
+        if count:
+            chunk_size = int(max(min(count/10, 100000), 10))
         cursor.itersize = chunk_size 
         cursor.execute(sql)
         row0 = cursor.fetchone()
