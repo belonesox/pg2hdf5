@@ -15,7 +15,7 @@ import gzip
 
 import itertools
 
-def sql2hdf5(sql, hdf5filename, con, type_hints={}):
+def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, fields_sets=None):
     """
     Read SQL query, return a DataFrame.
 
@@ -96,21 +96,69 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}):
             columns.append(col_name)
             dtypes.append( (col_name, dtype) )
 
+        col2num = dict([(col, num) for num, col in enumerate(columns)])
         
         hdf5file = None
         h5 = None
     
         row_num = 0
         csvwriter = None
+        
+        def get_list_for_fields(row, fields):
+            res_ = []
+            for field in fields:
+                if field in col2num:
+                    res_.append(row[col2num[field]])
+            return res_      
+        
 
         if hdf5filename.endswith('.csv.gz'):
             # csvfile = open(hdf5filename, 'w', newline='')
-            with gzip.open(hdf5filename, "w") as file:
-                writer = csv.writer(io.TextIOWrapper(file, newline="", write_through=True))
-                writer.writerow(columns)
-                writer.writerow(row0)
-                # writer = csv.writer(csvfile)
-                writer.writerows(cursor)
+            if not split_attributes:
+                with gzip.open(hdf5filename, "w") as file:
+                    writer = csv.writer(io.TextIOWrapper(file, newline="", write_through=True))
+                    writer.writerow(columns)
+                    writer.writerow(row0)
+                    # writer = csv.writer(csvfile)
+                    writer.writerows(cursor)
+            else:
+                csv_file_pool = {}
+                def get_writer_dict4row(row):
+                    key = get_list_for_fields(row, split_attributes)
+                    dict_ = dict(zip(split_attributes, key))
+                    
+                    if tuple(key) in csv_file_pool:
+                        return csv_file_pool[tuple(key)]
+                    
+                    writer_dict = {}
+                    for set_ in fields_sets:
+                        dict_['fieldset'] = set_ 
+                        filename_ = hdf5filename % dict_
+                        lf_ = gzip.open(filename_, "w")
+                        writer = csv.writer(io.TextIOWrapper(lf_, newline="", write_through=True))
+                        writer.writerow(fields_sets[set_])
+                        writer_dict[set_] = writer
+                    
+                    dict_['fieldset'] = 'meta' 
+                    filename_ = hdf5filename.replace('.csv.gz', '.csv') % dict_
+                    writer = csv.writer(open(filename_, 'w', newline=''))
+                    # writer = csv.writer(lf_)
+                    writer.writerow(["count"])
+                    writer_dict["meta"] = writer                        
+                    writer_dict["count"] = 0                        
+                    csv_file_pool[tuple(key)] = writer_dict
+                    return writer_dict
+
+                for row in cursor:
+                    wd_ = get_writer_dict4row(row)
+                    for set_ in fields_sets:
+                        wd_[set_].writerow(get_list_for_fields(row, fields_sets[set_]))
+                    wd_["count"] += 1
+
+                for k_, wd_ in csv_file_pool.items(): 
+                    count_ = wd_["count"]
+                    wd_["meta"].writerow([count_])
+                
         elif hdf5filename.endswith('.csv'):
             with open(hdf5filename, 'w', newline='') as csvfile:
                 writer = csv.writer(csvfile)
