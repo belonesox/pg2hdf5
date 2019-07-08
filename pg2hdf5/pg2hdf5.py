@@ -12,8 +12,17 @@ import h5py
 import csv
 import io
 import gzip
+import datetime
+import cachetools
+
 
 import itertools
+
+# lf_ = gzip.open(filename_, "w")
+# writer = csv.writer(io.TextIOWrapper(lf_, newline="", write_through=True))
+# writer.writerow(fields_sets[set_])
+# writer_dict[set_] = writer
+
 
 def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, fields_sets=None):
     """
@@ -44,13 +53,16 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, field
     if True:
         cursor = pgcon.cursor("serversidecursor", withhold=True)
         pgcon.commit()
-        chunk_size = 10000
+        chunk_size = 100000
         if count:
             chunk_size = int(max(min(count/10, 100000), 10))
-        cursor.itersize = chunk_size 
-        cursor.execute(sql)
-        row0 = cursor.fetchone()
+        cursor.itersize = chunk_size
 
+        print(str(datetime.datetime.now()), "Start executing query …  ")
+        cursor.execute(sql)
+        print(str(datetime.datetime.now()), "End executing query …  ")
+        row0 = cursor.fetchone()
+        print(str(datetime.datetime.now()), "End fetch first row …  ")
         columns = []
         dtypes = []
 
@@ -122,7 +134,8 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, field
                     # writer = csv.writer(csvfile)
                     writer.writerows(cursor)
             else:
-                csv_file_pool = {}
+                counter_pool = {}
+                csv_file_pool = cachetools.LRUCache(maxsize=8000)
                 def get_writer_dict4row(row):
                     key = get_list_for_fields(row, split_attributes)
                     dict_ = dict(zip(split_attributes, key))
@@ -130,6 +143,7 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, field
                     if tuple(key) in csv_file_pool:
                         return csv_file_pool[tuple(key)]
                     
+                    counter_pool[tuple(key)] = 0
                     writer_dict = {}
                     for set_ in fields_sets:
                         dict_['fieldset'] = set_ 
@@ -138,26 +152,31 @@ def sql2hdf5(sql, hdf5filename, con, type_hints={}, split_attributes=None, field
                         writer = csv.writer(io.TextIOWrapper(lf_, newline="", write_through=True))
                         writer.writerow(fields_sets[set_])
                         writer_dict[set_] = writer
-                    
-                    dict_['fieldset'] = 'meta' 
-                    filename_ = hdf5filename.replace('.csv.gz', '.csv') % dict_
-                    writer = csv.writer(open(filename_, 'w', newline=''))
-                    # writer = csv.writer(lf_)
-                    writer.writerow(["count"])
-                    writer_dict["meta"] = writer                        
-                    writer_dict["count"] = 0                        
-                    csv_file_pool[tuple(key)] = writer_dict
-                    return writer_dict
+
+                    # dict_['fieldset'] = 'meta' 
+                    # filename_ = hdf5filename.replace('.csv.gz', '.csv') % dict_
+                    # writer = csv.writer(open(filename_, 'w', newline=''))
+                    # # writer = csv.writer(lf_)
+                    # writer.writerow(["count"])
+                    # writer_dict["meta"] = writer
+                    # writer_dict["count"] = 0                        
+                    # csv_file_pool[tuple(key)] = writer_dict
+                    return writer_dict                                   
 
                 for row in cursor:
                     wd_ = get_writer_dict4row(row)
+                    key = get_list_for_fields(row, split_attributes)
                     for set_ in fields_sets:
                         wd_[set_].writerow(get_list_for_fields(row, fields_sets[set_]))
-                    wd_["count"] += 1
+                    counter_pool[tuple(key)] += 1
 
-                for k_, wd_ in csv_file_pool.items(): 
-                    count_ = wd_["count"]
-                    wd_["meta"].writerow([count_])
+                for key, count_ in counter_pool.items(): 
+                    dict_ = dict(zip(split_attributes, key))
+                    dict_['fieldset'] = 'meta' 
+                    filename_ = hdf5filename.replace('.csv.gz', '.csv') % dict_
+                    writer = csv.writer(open(filename_, 'w', newline=''))
+                    writer.writerow(["count"])
+                    writer.writerow([count_])
                 
         elif hdf5filename.endswith('.csv'):
             with open(hdf5filename, 'w', newline='') as csvfile:
